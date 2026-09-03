@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shuttle Schedule</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%2345C9B6'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg: #0F1428;
+    --panel: #1A2145;
+    --panel-2: #222B58;
+    --line: #303A6E;
+    --text: #ECEFF7;
+    --muted: #8A92BD;
+    --pickup: #45C9B6;
+    --pickup-dim: #1E4A46;
+    --dropoff: #F0A93E;
+    --dropoff-dim: #4A3A1E;
+    --danger: #E2637A;
+    --mono: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body{
+    margin:0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); min-height: 100vh; padding: 20px 14px 60px;
+    overflow-x: hidden; position:relative;
+  }
+  .wrap{ max-width: 640px; margin: 0 auto; }
+
+  header{ margin-bottom: 18px; position:relative; height:80px; }
+  .beacon{
+    width: 8px; height: 8px; border-radius: 50%;
+    display:inline-block; margin: 0 0 4px;
+    animation: beaconPulse 4.8s ease-in-out infinite;
+  }
+  @keyframes beaconPulse{
+    0%{opacity:1;background:#ECEFF7;box-shadow:0 0 9px 3px rgba(236,239,247,0.6);}
+    24%{opacity:0.22;background:#ECEFF7;box-shadow:0 0 9px 3px rgba(236,239,247,0.6);}
+    26%{opacity:0.22;background:#45C9B6;box-shadow:0 0 9px 3px rgba(69,201,182,0.6);}
+    50%{opacity:1;background:#45C9B6;box-shadow:0 0 9px 3px rgba(69,201,182,0.6);}
+    74%{opacity:0.22;background:#45C9B6;box-shadow:0 0 9px 3px rgba(69,201,182,0.6);}
+    76%{opacity:0.22;background:#ECEFF7;box-shadow:0 0 9px 3px rgba(236,239,247,0.6);}
+    100%{opacity:1;background:#ECEFF7;box-shadow:0 0 9px 3px rgba(236,239,247,0.6);}
+  }
+  h1{ font-size: 1.3rem; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 2px; }
+  .sub{ color: var(--muted); font-size: 0.85rem; }
+
+  .fog-outer{
+    position:absolute; top:6px; left:0; right:0;
+    height:220px; overflow:hidden; z-index:0; pointer-events:none;
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, black 12%, black 88%, transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0%, black 12%, black 88%, transparent 100%);
+  }
+  .fog-track{ position:absolute; top:0; left:0; display:flex; width:200%; height:100%; filter:blur(8px); animation: cloudDrift 30s linear infinite; }
+  .fog-track svg{ width:50%; height:100%; flex-shrink:0; display:block; }
+  @keyframes cloudDrift{ from{transform:translateX(-50%)} to{transform:translateX(0)} }
+  .header-inner{ position:relative; z-index:2; text-align:center; padding-top:18px; }
+
+  .diag-banner{
+    background: rgba(240,169,62,0.1); border: 1px solid var(--dropoff);
+    color: var(--text); font-size: 0.76rem; border-radius: 9px;
+    padding: 9px 12px; margin-bottom: 14px; display:none;
+  }
+  .diag-banner.show{ display:block; }
+
+  .switch{
+    display:flex; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 4px; margin: 22px 0 20px; position:relative;
+  }
+  .switch button{
+    flex:1; padding: 11px 8px; border:none; border-radius: 7px;
+    background: transparent; color: var(--muted); font-size: 0.9rem;
+    font-weight: 600; cursor:pointer;
+  }
+  .switch button.active{ background: var(--panel-2); color: var(--text); }
+
+  .switch-wrap{ position:relative; }
+  .windsock{ position:absolute; bottom:100%; margin-bottom:0; right:18px; z-index:3; }
+  .windsock svg{ display:block; }
+  .windsock .sock{ animation: sway 2.6s ease-in-out infinite; }
+  @keyframes sway{ 0%,100%{transform:rotate(-4deg)} 50%{transform:rotate(6deg)} }
+
+  .card{ background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 14px; }
+  .card.taxiway{ border: 6px double var(--dropoff); }
+  .info-card{ background: var(--panel-2); position:relative; overflow:hidden; }
+  .runway-lights{ position:absolute; top:0; left:0; right:0; height:3px; display:flex; justify-content:space-between; padding:0 14px; }
+  .runway-lights.bottom{ top:auto; bottom:0; }
+  .runway-lights span{ width:3.5px; height:3.5px; border-radius:50%; background:var(--text); flex-shrink:0; }
+  .runway-lights span.r{ background:var(--danger); }
+  .info-title{ font-size: 0.85rem; font-weight:700; margin-bottom: 6px; }
+  .info-body{ font-size: 0.82rem; color: var(--muted); line-height:1.5; }
+  .info-body b{ color: var(--text); font-weight:600; }
+
+  .week-banner{
+    display:flex; justify-content:space-between; align-items:center;
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 0.85rem;
+    position:relative; overflow:hidden;
+  }
+  .week-banner .lbl{ color: var(--muted); font-size: 0.72rem; display:block; margin-bottom:2px; }
+  .week-banner .inline-label{ flex:1; min-height:1.3em; }
+  .week-banner .inline-label .lbl{ display:inline-block; margin-bottom:0; }
+  .week-banner .inline-label .val{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); white-space:nowrap; }
+  .week-banner .val{ font-family: var(--mono); }
+
+  label{ display:block; font-size: 0.82rem; color: var(--text); margin: 0 0 8px; font-weight:600; }
+  input[type=text], input[type=date], input[type=number]{
+    width:100%; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 9px; padding: 13px 14px; color: var(--text);
+    font-family: var(--sans); font-size: 1rem;
+  }
+  input.invalid{ border-color: var(--danger); }
+  #newWeekNum{ width: 120px; max-width: 40%; display:block; margin: 0 auto; text-align:center; }
+  input[type=number]{ -moz-appearance: textfield; }
+  input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button{ -webkit-appearance: none; margin:0; }
+  input:focus, button:focus-visible{ outline: 2px solid var(--dropoff); outline-offset: 1px; }
+
+  .day-block{ border: 1px solid var(--line); border-radius: 12px; padding: 12px 12px 14px; margin-top:16px; margin-bottom: 10px; background: var(--bg); }
+  .day-block.filled{ border-color: #3A4A8A; }
+  .day-head{ display:flex; align-items:baseline; gap:6px; margin-bottom: 10px; }
+  .day-head .day-name{ font-size: 0.92rem; font-weight: 700; }
+  .day-head .day-date{ color: var(--muted); font-size: 0.76rem; }
+
+  .dir-group{ margin-bottom: 8px; }
+  .dir-group:last-child{ margin-bottom:0; }
+  .dir-line{ margin-bottom: 6px; }
+  .dir-label{ font-size: 0.7rem; font-weight:700; letter-spacing:0.02em; }
+  .loc-opt{ cursor:pointer; color: var(--muted); font-weight:600; padding: 2px 0; }
+  .loc-sep{ color: var(--muted); font-weight:600; margin: 0 3px; }
+  .loc-opt.on{ color: inherit; text-decoration: underline; text-underline-offset:1px; }
+  .chip-row{ display:grid; grid-template-columns: repeat(6, 1fr); gap:6px; }
+  .chip{
+    font-family: var(--mono); font-size: 0.76rem; border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 2px; background: var(--panel);
+    color: var(--muted); cursor:pointer; text-align:center;
+    user-select:none;
+  }
+  .chip.sel.pickup{ background: var(--pickup-dim); border-color: var(--pickup); color: var(--text); }
+  .chip.sel.dropoff{ background: var(--dropoff-dim); border-color: var(--dropoff); color: var(--text); }
+
+  .submit-btn{
+    width:100%; margin-top: 16px; padding: 14px; border-radius: 10px;
+    border: none; background: var(--dropoff); color: #241705;
+    font-weight: 700; font-size: 1rem; cursor: pointer;
+  }
+  .submit-btn:disabled{ opacity:0.5; }
+  .msg{ font-size: 0.85rem; margin-top: 10px; color: var(--pickup); min-height: 1.2em; }
+  .msg.err{ color: var(--danger); }
+
+  /* login gate */
+  .gate{ background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 26px 18px; text-align:center; }
+  .gate p{ color: var(--muted); font-size: 0.85rem; margin: 6px 0 16px; }
+  .gate input{ text-align:center; margin-bottom: 10px; }
+  .gate button{
+    width:100%; padding: 13px; border-radius: 9px; border:none;
+    background: var(--dropoff); color:#241705; font-weight:700; cursor:pointer;
+  }
+
+  /* scheduler board */
+  .actions{ display:flex; gap:8px; }
+  .actions button{
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    font-size: 0.78rem; padding: 8px 12px; border-radius: 7px; cursor:pointer;
+  }
+
+  .confirm-strip{
+    margin-top:10px; padding:10px 12px; border-radius:8px; background: rgba(240,169,62,0.08);
+    border: 2px dashed var(--dropoff); font-size: 0.8rem;
+  }
+  .confirm-strip .btnrow{ display:flex; gap:8px; margin-top:8px; }
+  .confirm-strip button{ flex:1; padding:9px; border-radius:7px; border:none; font-weight:700; cursor:pointer; font-size:0.82rem; }
+  .confirm-strip .yes{ background: var(--danger); color:#2a0a10; }
+  .confirm-strip .no{ background: var(--panel); color: var(--text); border:1px solid var(--line); }
+
+  .legend{ display:flex; gap:16px; font-size:0.72rem; color:var(--muted); margin-bottom:10px; }
+  .legend span{ display:inline-flex; align-items:center; gap:5px; }
+  .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .dot.p{ background: var(--pickup); }
+  .dot.d{ background: var(--dropoff); }
+
+  .heatmap{ width:100%; min-width: 620px; border-collapse: collapse; font-size: 0.72rem; margin-bottom: 18px; }
+  #heatmapWrap{ overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .heatmap th, .heatmap td{ border: 1px solid var(--line); padding: 5px 3px; text-align:center; }
+  .heatmap th{ color: var(--muted); font-weight:600; font-family: var(--mono); font-size:0.68rem; background: var(--panel); }
+  .heatmap td.daycell{ text-align:left; padding-left:8px; background: var(--panel); }
+  .heatmap td.daycell .dn{ font-weight:700; font-size:0.74rem; }
+  .heatmap td.daycell .dd{ color: var(--muted); font-size: 0.64rem; }
+  .heatmap td.slotcell{ background: var(--bg); }
+  .pd-stack{ display:flex; flex-direction:column; gap:2px; align-items:center; }
+  .pd-stack .n{ min-width: 20px; border-radius:4px; padding:1px 3px; color: var(--muted); }
+  .pd-stack .n.p.has{ color: var(--pickup); }
+  .pd-stack .n.d.has{ color: var(--dropoff); }
+  .pd-stack .n.p.top{ background: var(--pickup-dim); color: var(--pickup); font-weight:700; }
+  .pd-stack .n.d.top{ background: var(--dropoff-dim); color: var(--dropoff); font-weight:700; }
+
+  .board-heading{ font-size: 0.85rem; font-weight:700; margin-bottom: 10px; }
+
+  .dash-day{ margin-bottom: 18px; }
+  .dash-day:last-child{ margin-bottom: 0; }
+  .dash-day-head{ font-size: 0.82rem; font-weight:700; margin-bottom: 9px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .dash-row{ display:flex; align-items:center; gap:10px; margin-bottom: 4px; cursor:pointer; }
+  .dash-detail{
+    margin: 0 0 10px 58px; font-size: 0.78rem; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .dash-detail-line{ margin-bottom: 4px; }
+  .dash-detail-line:last-child{ margin-bottom: 0; }
+  .dash-detail-tag{
+    font-family: var(--mono); font-weight:700; font-size: 0.66rem;
+    border-radius: 4px; padding: 1px 5px; margin-right: 6px;
+  }
+  .dash-detail-tag.to{ background: var(--dropoff-dim); color: var(--dropoff); }
+  .dash-detail-tag.from{ background: var(--pickup-dim); color: var(--pickup); }
+  .dash-row .dash-time{ width: 48px; flex-shrink:0; font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
+  .dash-row.dash-top .dash-time{ color: var(--text); font-weight:700; }
+  .dash-track{ flex:1; background: var(--panel); border-radius: 6px; height: 20px; overflow:hidden; }
+  .dash-bar{ height:100%; display:flex; border-radius:6px; overflow:hidden; }
+  .dash-seg{
+    display:flex; align-items:center; justify-content:center;
+    font-family: var(--mono); font-size: 0.62rem; font-weight:700;
+    color: #12172B; overflow:hidden; white-space:nowrap; letter-spacing:0.01em;
+  }
+  .dash-seg.to{ background: var(--dropoff); }
+  .dash-seg.from{ background: var(--pickup); }
+
+  .demand-day{ border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; overflow:hidden; }
+  .demand-day .dd-head{
+    padding: 10px 14px; font-weight:700; font-size:0.85rem;
+    background: var(--panel); display:flex; justify-content:space-between; align-items:center;
+  }
+  .demand-day .dd-head .total{ font-family: var(--mono); font-weight:400; color: var(--muted); font-size:0.75rem; }
+  .demand-body{ padding: 10px 14px 12px; background: var(--bg); }
+  .dir-detail{ margin-bottom: 10px; }
+  .dir-detail:last-child{ margin-bottom:0; }
+  .dir-detail-title{ font-size: 0.68rem; font-weight:700; letter-spacing:0.02em; margin-bottom: 6px; }
+  .dir-detail.to .dir-detail-title{ color: var(--dropoff); }
+  .dir-detail.from .dir-detail-title{ color: var(--pickup); }
+  .slot-line{ display:flex; gap:10px; padding: 4px 0; font-size: 0.83rem; align-items:baseline; }
+  .slot-line .slot-badge{
+    font-family: var(--mono); font-size: 0.76rem; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    padding: 2px 6px; flex-shrink:0; min-width: 44px; text-align:center;
+  }
+  .slot-line .names{ line-height:1.4; }
+  .loc-tag{ color: var(--muted); font-style: italic; font-size: 0.76rem; }
+
+  .empty{ text-align:center; color: var(--muted); padding: 40px 10px; font-size: 0.88rem; }
+</style>
+</head>
+<body>
+<canvas id="confettiCanvas" style="position:fixed; inset:0; pointer-events:none; z-index:1000;"></canvas>
+<div class="wrap">
+  <header>
+    <div class="fog-outer" aria-hidden="true">
+    <div class="fog-track">
+      <svg viewBox="0 0 600 230" preserveAspectRatio="none">
+        <defs>
+          <radialGradient id="g1" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#F5B96A" stop-opacity="0.65"/>
+            <stop offset="60%" stop-color="#F0A93E" stop-opacity="0.4"/>
+            <stop offset="100%" stop-color="#F0A93E" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g2" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#F2AA7C" stop-opacity="0.5"/>
+            <stop offset="60%" stop-color="#EC9868" stop-opacity="0.28"/>
+            <stop offset="100%" stop-color="#EC9868" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="90" cy="53" rx="90" ry="34" fill="url(#g1)"/>
+        <ellipse cx="150" cy="43" rx="65" ry="26" fill="url(#g1)"/>
+        <ellipse cx="50" cy="38" rx="55" ry="22" fill="url(#g2)"/>
+        <ellipse cx="360" cy="68" rx="100" ry="36" fill="url(#g2)"/>
+        <ellipse cx="430" cy="56" rx="70" ry="28" fill="url(#g1)"/>
+        <ellipse cx="310" cy="60" rx="50" ry="20" fill="url(#g1)"/>
+        <ellipse cx="560" cy="40" rx="80" ry="30" fill="url(#g1)"/>
+        <ellipse cx="600" cy="36" rx="55" ry="22" fill="url(#g2)"/>
+      </svg>
+      <svg viewBox="0 0 600 230" preserveAspectRatio="none">
+        <ellipse cx="90" cy="53" rx="90" ry="34" fill="url(#g1)"/>
+        <ellipse cx="150" cy="43" rx="65" ry="26" fill="url(#g1)"/>
+        <ellipse cx="50" cy="38" rx="55" ry="22" fill="url(#g2)"/>
+        <ellipse cx="360" cy="68" rx="100" ry="36" fill="url(#g2)"/>
+        <ellipse cx="430" cy="56" rx="70" ry="28" fill="url(#g1)"/>
+        <ellipse cx="310" cy="60" rx="50" ry="20" fill="url(#g1)"/>
+        <ellipse cx="560" cy="40" rx="80" ry="30" fill="url(#g1)"/>
+        <ellipse cx="600" cy="36" rx="55" ry="22" fill="url(#g2)"/>
+      </svg>
+    </div>
+    </div>
+    <div class="header-inner">
+      <span class="beacon"></span>
+      <h1>Shuttle Schedule</h1>
+    </div>
+  </header>
+
+  <div id="siteGate" class="gate" style="display:none;">
+    <h1 style="font-size:1.05rem;">Class access</h1>
+    <p>Enter the code your scheduler shared with the class to continue.</p>
+    <input type="text" id="sitePass" placeholder="Access code">
+    <button id="siteGateBtn">Continue</button>
+    <div class="msg err" id="siteGateMsg"></div>
+  </div>
+
+  <div id="appMain" style="display:none;">
+  <div class="diag-banner" id="diagBanner"></div>
+
+  <div class="switch-wrap">
+    <div class="switch">
+      <div class="windsock" aria-hidden="true">
+        <svg width="60" height="34" viewBox="0 0 60 34">
+          <line x1="4" y1="34" x2="4" y2="4" stroke="#8A92BD" stroke-width="2"/>
+          <g class="sock" style="transform-origin:4px 4px;">
+            <polygon points="4,2 15,3.2 15,10.8 4,12" fill="#F0A93E"/>
+            <polygon points="15,3.2 26,4.4 26,9.6 15,10.8" fill="#ECEFF7"/>
+            <polygon points="26,4.4 37,5.6 37,8.4 26,9.6" fill="#F0A93E"/>
+            <polygon points="37,5.6 48,6.8 48,7.2 37,8.4" fill="#ECEFF7"/>
+          </g>
+        </svg>
+      </div>
+      <button id="tabStudent" class="active">Request a ride</button>
+      <button id="tabScheduler">Scheduler board</button>
+    </div>
+  </div>
+
+  <!-- STUDENT VIEW -->
+  <div id="viewStudent">
+    <div class="card info-card">
+      <div class="info-title">Weekly Transfer Service</div>
+      <div class="info-body">
+        Through this form we can make a better fitting shuttle schedule each week.<br><br>
+        <b>Important information:</b> The service can run a maximum of <b>3 trips a day</b>. The initial proposal is around <b>07:30, 11:00 and 15:00</b>, but this may shift based on your answers. On weekends there's just <b>one trip, at 07:30</b>. Please answer based on your weekly schedule.<br><br>
+        Your name links to your answers: if you type the same name again, your previous picks will load automatically so you can change them.
+      </div>
+    </div>
+
+    <div class="week-banner">
+      <div class="runway-lights" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span class="r"></span><span></span><span class="r"></span><span></span><span class="r"></span><span class="r"></span><span class="r"></span>
+      </div>
+      <div class="inline-label"><span class="lbl">Booking for</span><span class="val" id="weekLabelStudent">…</span></div>
+      <div class="runway-lights bottom" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span class="r"></span><span></span><span class="r"></span><span></span><span class="r"></span><span class="r"></span><span class="r"></span>
+      </div>
+    </div>
+
+    <div class="card taxiway">
+      <label for="fName">Your name</label>
+      <input type="text" id="fName" placeholder="Three-letter code or name">
+
+      <div id="dayRows"></div>
+
+      <button class="submit-btn" id="submitBtn">Save my week</button>
+      <div class="msg" id="formMsg"></div>
+    </div>
+  </div>
+
+  <!-- SCHEDULER GATE -->
+  <div id="viewGate" style="display:none;">
+    <div class="gate">
+      <h1 style="font-size:1.05rem;">Scheduler access</h1>
+      <p>Enter the scheduler passcode to view demand for this week.</p>
+      <input type="text" id="gatePass" placeholder="Passcode">
+      <button id="gateBtn">Unlock</button>
+      <div class="msg err" id="gateMsg"></div>
+    </div>
+  </div>
+
+  <!-- SCHEDULER VIEW -->
+  <div id="viewScheduler" style="display:none;">
+    <div class="week-banner">
+      <div class="runway-lights" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span class="r"></span><span></span><span class="r"></span><span></span><span class="r"></span><span class="r"></span><span class="r"></span>
+      </div>
+      <div class="inline-label"><span class="lbl">Current week</span><span class="val" id="weekLabelSched">…</span></div>
+      <span class="sub" id="reqCount"></span>
+      <div class="runway-lights bottom" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span class="r"></span><span></span><span class="r"></span><span></span><span class="r"></span><span class="r"></span><span class="r"></span>
+      </div>
+    </div>
+    <div class="card">
+      <label for="newWeekNum">Start a new week by entering the week number</label>
+      <input type="number" id="newWeekNum" min="1" max="53" placeholder="e.g. 37">
+      <button class="submit-btn" id="resetBtn">Reset and start selected week</button>
+      <div id="resetConfirmBox"></div>
+    </div>
+
+    <div class="legend">
+      <span><span class="dot d"></span>To the airport</span>
+      <span><span class="dot p"></span>From the airport</span>
+    </div>
+    <div id="heatmapWrap"></div>
+
+    <div class="board-heading">Most requested times</div>
+    <div id="dashboard"></div>
+
+    <div class="actions" style="margin-bottom:12px;">
+      <button id="exportBtn">Export CSV</button>
+    </div>
+
+    <div class="board-heading">Requests by day</div>
+    <div id="board"></div>
+  </div>
+  </div>
+</div>
+
+<script>
+// ---- configurable ----
+const TO_SLOTS   = ['07:30','10:30','11:00','11:30','12:00','12:30'];
+const FROM_SLOTS = ['10:30','11:00','11:30','12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30','16:00'];
+const WEEKEND_SLOTS = ['07:30']; // weekends run a single trip, at 07:30 only
+const SLOTS = Array.from(new Set([...TO_SLOTS, ...FROM_SLOTS])).sort(); // union, used for the heatmap columns
+function slotsFor(dir, dayIndex){
+  if(dayIndex >= 5) return WEEKEND_SLOTS; // Sat/Sun
+  return dir === 'to' ? TO_SLOTS : FROM_SLOTS;
+}
+const SITE_PASSCODE = '25-1'; // gate for the whole page — change this freely, it's just a deterrent
+const PASSCODE = 'osm2026'; // scheduler board passcode, not secure, just keeps casual browsing out
+const KEY = 'osmaa-shuttle-state';
+const DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const DAY_SHORT = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+// 'from' = ride FROM the airport, i.e. airport -> apartment (teal / "pickup" styling)
+// 'to'   = ride TO the airport, i.e. apartment -> airport (amber / "dropoff" styling)
+const DIR_META = {
+  to:   { css: 'dropoff', prefix: 'TO THE',   desc: 'Apartment → airport/simcentre' },
+  from: { css: 'pickup',  prefix: 'FROM THE', desc: 'Airport/simcentre → apartment' }
+};
+
+let state = { weekStart: null, requests: [] };
+let schedulerUnlocked = false;
+let formSelections = {};
+let usingFallbackStorage = false;
+
+const el = id => document.getElementById(id);
+
+// ---- storage adapter: talks to the Google Apps Script / Sheets backend.
+// Falls back to localStorage (same-device only) if the backend can't be
+// reached, so the page never just fails silently. ----
+const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbw0wi80duw31YlC0CN6rDWndJe4IxBzcsImvC217h14NJO_0HTJPCVGEz3vI0I2XV9UjA/exec';
+
+async function storageGet(key, shared){
+  try{
+    const res = await fetch(BACKEND_URL, { method: 'GET', cache: 'no-store' });
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.text();
+  }catch(e){
+    usingFallbackStorage = true;
+    showDiagBanner();
+    try{ return window.localStorage.getItem('fallback:'+key); }catch(e2){ return null; }
+  }
+}
+async function storageSet(key, value, shared){
+  try{
+    // text/plain avoids a CORS preflight that Apps Script doesn't handle well;
+    // the server still parses the body as JSON regardless of this header.
+    const res = await fetch(BACKEND_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: value
+    });
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    return true;
+  }catch(e){
+    usingFallbackStorage = true;
+    showDiagBanner();
+    try{ window.localStorage.setItem('fallback:'+key, value); return true; }catch(e2){ return false; }
+  }
+}
+function showDiagBanner(){
+  const b = el('diagBanner');
+  if(!b) return;
+  b.textContent = "This page can't reach the shared spreadsheet right now, so it's saving to this device only — other people won't see what you enter here. Check your connection and try again.";
+  b.classList.add('show');
+}
+
+
+function freshSelections(){
+  const o = {};
+  for(let i=0;i<7;i++) o[i] = { from: {slot:'', loc:'airport'}, to: {slot:'', loc:'airport'} };
+  return o;
+}
+formSelections = freshSelections();
+
+function nextMonday(){
+  const now = new Date();
+  const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const day = d.getUTCDay();
+  const diff = (8 - day) % 7 || 7;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d.toISOString().slice(0,10);
+}
+
+function fmtShort(dateObj){
+  return dateObj.toLocaleDateString(undefined, { day:'numeric', month:'short' });
+}
+
+function isoWeekToMonday(week, year){
+  const simple = new Date(Date.UTC(year, 0, 1 + (week-1)*7));
+  const dow = simple.getUTCDay() || 7;
+  simple.setUTCDate(simple.getUTCDate() + (dow <= 4 ? 1 - dow : 8 - dow));
+  return simple;
+}
+function isoWeekNumber(d){
+  const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  dt.setUTCDate(dt.getUTCDate() + 4 - (dt.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  return Math.ceil(((dt - yearStart) / 86400000 + 1) / 7);
+}
+
+function weekLabel(){
+  if(!state.weekStart) return 'not set yet';
+  const start = new Date(state.weekStart + 'T00:00:00');
+  const end = new Date(start); end.setDate(end.getDate()+6);
+  const wk = state.weekNum || isoWeekNumber(start);
+  return `Week ${wk} · ${fmtShort(start)} – ${fmtShort(end)}, ${end.getFullYear()}`;
+}
+
+function dateForDay(i){
+  const start = new Date(state.weekStart + 'T00:00:00');
+  const d = new Date(start); d.setDate(d.getDate()+i);
+  return d;
+}
+
+async function loadState(){
+  try{
+    const raw = await storageGet(KEY, true);
+    state = raw ? JSON.parse(raw) : { weekStart: nextMonday(), requests: [] };
+  }catch(e){
+    state = { weekStart: nextMonday(), requests: [] };
+  }
+  if(!state.weekStart) state.weekStart = nextMonday();
+}
+
+async function saveState(){
+  return await storageSet(KEY, JSON.stringify(state), true);
+}
+
+// ---- tabs ----
+el('tabStudent').onclick = () => switchTab('student');
+el('tabScheduler').onclick = () => switchTab('scheduler');
+
+async function switchTab(which){
+  el('tabStudent').classList.toggle('active', which==='student');
+  el('tabScheduler').classList.toggle('active', which==='scheduler');
+  el('viewStudent').style.display = which==='student' ? '' : 'none';
+  if(which==='scheduler'){
+    if(schedulerUnlocked){
+      el('viewGate').style.display = 'none';
+      el('viewScheduler').style.display = '';
+      showSchedulerLoading_();
+      await loadState();
+      renderScheduler();
+    } else {
+      el('viewGate').style.display = '';
+      el('viewScheduler').style.display = 'none';
+    }
+  } else {
+    el('viewGate').style.display = 'none';
+    el('viewScheduler').style.display = 'none';
+  }
+}
+function showSchedulerLoading_(){
+  el('heatmapWrap').innerHTML = '<div class="empty">Loading…</div>';
+  el('dashboard').innerHTML = '';
+  el('board').innerHTML = '';
+}
+
+el('gateBtn').onclick = async () => {
+  if(el('gatePass').value === PASSCODE){
+    schedulerUnlocked = true;
+    el('viewGate').style.display = 'none';
+    el('viewScheduler').style.display = '';
+    showSchedulerLoading_();
+    await loadState();
+    renderScheduler();
+  } else {
+    el('gateMsg').textContent = 'Incorrect passcode.';
+  }
+};
+el('gatePass').addEventListener('keydown', e => { if(e.key==='Enter') el('gateBtn').click(); });
+
+// ---- student form ----
+function buildDayRows(){
+  el('dayRows').innerHTML = DAY_NAMES.map((name, i) => {
+    const sel = formSelections[i];
+    const filled = sel.from.slot || sel.to.slot;
+    const dirBlock = (dir) => {
+      const meta = DIR_META[dir];
+      const s = sel[dir];
+      const chips = slotsFor(dir, i).map(slot => {
+        const isSel = s.slot === slot;
+        return `<span class="chip ${meta.css} ${isSel?'sel':''}" data-day="${i}" data-dir="${dir}" data-slot="${slot}">${slot}</span>`;
+      }).join('');
+      return `
+        <div class="dir-group">
+          <div class="dir-line">
+            <span class="dir-label" style="color:var(--${meta.css})">${meta.prefix}
+              <span class="loc-opt ${s.loc==='airport'?'on':''}" data-day="${i}" data-dir="${dir}" data-loc="airport">AIRPORT</span><span class="loc-sep">/</span><span class="loc-opt ${s.loc==='simcentre'?'on':''}" data-day="${i}" data-dir="${dir}" data-loc="simcentre">SIMCENTRE</span>
+            </span>
+          </div>
+          <div class="chip-row">${chips}</div>
+        </div>`;
+    };
+    return `
+      <div class="day-block ${filled?'filled':''}">
+        <div class="day-head"><span class="day-name">${name}</span><span class="day-date" id="dd-${i}"></span></div>
+        ${dirBlock('to')}
+        ${dirBlock('from')}
+      </div>`;
+  }).join('');
+  refreshDayDates();
+}
+
+el('dayRows').addEventListener('click', (e) => {
+  const locOpt = e.target.closest('.loc-opt');
+  if(locOpt){
+    formTouched = true;
+    const day = +locOpt.dataset.day, dir = locOpt.dataset.dir;
+    formSelections[day][dir].loc = locOpt.dataset.loc;
+    buildDayRows();
+    return;
+  }
+  const chip = e.target.closest('.chip');
+  if(chip){
+    formTouched = true;
+    const day = +chip.dataset.day, dir = chip.dataset.dir, slot = chip.dataset.slot;
+    const already = formSelections[day][dir].slot === slot;
+    formSelections[day][dir].slot = already ? '' : slot;
+    buildDayRows();
+  }
+});
+
+function refreshDayDates(){
+  for(let i=0;i<7;i++){
+    const dd = el('dd-'+i);
+    if(dd && state.weekStart) dd.textContent = fmtShort(dateForDay(i));
+  }
+}
+
+let formTouched = false;
+
+function prefillFromName(){
+  if(formTouched) return; // don't clobber picks the student already made this session
+  const name = el('fName').value.trim().toLowerCase();
+  if(!name) return;
+  const existing = state.requests.filter(r => r.name.trim().toLowerCase() === name);
+  if(existing.length === 0) return;
+  formSelections = freshSelections();
+  existing.forEach(r => { formSelections[r.dayIndex][r.direction] = { slot: r.slot, loc: r.loc || 'airport' }; });
+  buildDayRows();
+}
+el('fName').addEventListener('blur', prefillFromName);
+el('fName').addEventListener('input', () => {}, { passive: true });
+
+el('submitBtn').onclick = async () => {
+  const name = el('fName').value.trim();
+  const msg = el('formMsg');
+  if(!name){
+    el('fName').classList.add('invalid');
+    msg.textContent = 'Please enter your name first.';
+    msg.className = 'msg err';
+    return;
+  }
+  el('fName').classList.remove('invalid');
+
+  const btn = el('submitBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  msg.textContent = 'Saving your week — this can take a few seconds.';
+  msg.className = 'msg';
+  try{
+    await loadState();
+    const lname = name.toLowerCase();
+    state.requests = state.requests.filter(r => r.name.trim().toLowerCase() !== lname);
+    for(let i=0;i<7;i++){
+      const f = formSelections[i].from;
+      const t = formSelections[i].to;
+      if(f.slot) state.requests.push({ id: cryptoId(), name, dayIndex:i, direction:'from', slot:f.slot, loc:f.loc, submittedAt: new Date().toISOString() });
+      if(t.slot) state.requests.push({ id: cryptoId(), name, dayIndex:i, direction:'to', slot:t.slot, loc:t.loc, submittedAt: new Date().toISOString() });
+    }
+    const ok = await saveState();
+    if(ok === false){
+      msg.textContent = "Couldn't save — storage isn't reachable right now. Try again in a moment.";
+      msg.className = 'msg err';
+    } else {
+      msg.textContent = 'Saved — you can come back and update it any time. Only the days you picked were saved, that\'s expected.';
+      msg.className = 'msg';
+      formTouched = false;
+      const btnRect = el('submitBtn').getBoundingClientRect();
+      triggerConfetti(btnRect.left + btnRect.width/2, btnRect.top);
+    }
+  }catch(e){
+    msg.textContent = 'Something went wrong saving your week: ' + (e && e.message ? e.message : e);
+    msg.className = 'msg err';
+  }
+  btn.disabled = false;
+  btn.textContent = originalLabel;
+};
+
+function cryptoId(){ return Date.now() + '-' + Math.random().toString(36).slice(2,7); }
+
+function triggerConfetti(originX, originY){
+  const canvas = el('confettiCanvas');
+  if(!canvas || !canvas.getContext) return;
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  const ox = originX != null ? originX : canvas.width/2;
+  const oy = originY != null ? originY : canvas.height/2;
+  const colors = ['#F0A93E','#45C9B6','#ECEFF7','#E2637A'];
+  const particles = [];
+  for(let i=0;i<90;i++){
+    const angle = -Math.PI/2 + (Math.random()-0.5) * Math.PI * 1.1; // upward-biased burst
+    const speed = 4 + Math.random()*7;
+    particles.push({
+      x: ox, y: oy,
+      w: 5+Math.random()*4, h: 8+Math.random()*6,
+      color: colors[Math.floor(Math.random()*colors.length)],
+      vx: Math.cos(angle)*speed,
+      vy: Math.sin(angle)*speed,
+      rot: Math.random()*360,
+      rotSpeed: (Math.random()-0.5)*14,
+      opacity: 1
+    });
+  }
+  const gravity = 0.28;
+  let frame = 0;
+  const maxFrames = 110;
+  (function animate(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    frame++;
+    particles.forEach(p => {
+      p.vy += gravity;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rot += p.rotSpeed;
+      if(frame > maxFrames*0.6) p.opacity = Math.max(0, p.opacity - 0.035);
+      ctx.save();
+      ctx.globalAlpha = p.opacity;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot * Math.PI/180);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+      ctx.restore();
+    });
+    if(frame < maxFrames){
+      requestAnimationFrame(animate);
+    } else {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+    }
+  })();
+}
+
+// ---- scheduler board ----
+el('resetBtn').onclick = () => {
+  const wkNum = parseInt(el('newWeekNum').value, 10);
+  if(!wkNum || wkNum < 1 || wkNum > 53){
+    el('resetConfirmBox').innerHTML = '<div class="confirm-strip">Enter a valid week number (1–53) first.</div>';
+    return;
+  }
+  const year = new Date().getFullYear();
+  const monday = isoWeekToMonday(wkNum, year);
+  const mondayStr = monday.toISOString().slice(0,10);
+  const end = new Date(monday); end.setDate(end.getDate()+6);
+  el('resetConfirmBox').innerHTML = `
+    <div class="confirm-strip">
+      This clears all current responses and starts Week ${wkNum}: ${fmtShort(monday)} – ${fmtShort(end)}, ${end.getFullYear()}. This can't be undone.
+      <div class="btnrow">
+        <button class="no" id="cancelReset">Cancel</button>
+        <button class="yes" id="confirmReset">Yes, reset</button>
+      </div>
+    </div>`;
+  el('cancelReset').onclick = () => { el('resetConfirmBox').innerHTML = ''; };
+  el('confirmReset').onclick = async () => {
+    state = { weekStart: mondayStr, weekNum: wkNum, requests: [] };
+    await saveState();
+    el('resetConfirmBox').innerHTML = '';
+    renderScheduler();
+  };
+};
+
+function renderScheduler(){
+  el('weekLabelSched').textContent = weekLabel();
+  el('reqCount').textContent = state.requests.length + (state.requests.length===1 ? ' response' : ' responses');
+  el('newWeekNum').value = state.weekNum || isoWeekNumber(new Date(state.weekStart + 'T00:00:00'));
+
+  renderHeatmap();
+  renderDashboard();
+  renderDetails();
+}
+
+el('dashboard').addEventListener('click', (e) => {
+  const row = e.target.closest('.dash-row');
+  if(!row) return;
+  const detail = row.nextElementSibling;
+  if(detail && detail.classList.contains('dash-detail')){
+    detail.style.display = detail.style.display === 'none' ? '' : 'none';
+  }
+});
+
+function renderDashboard(){
+  const wrap = el('dashboard');
+  if(state.requests.length === 0){
+    wrap.innerHTML = '<div class="empty">No responses yet for this week.</div>';
+    return;
+  }
+  wrap.innerHTML = DAY_NAMES.map((name, i) => {
+    const dayReqs = state.requests.filter(r => r.dayIndex === i);
+    if(dayReqs.length === 0) return '';
+    const totals = SLOTS.map(s => ({
+      slot: s,
+      to: dayReqs.filter(r => r.slot===s && r.direction==='to').length,
+      from: dayReqs.filter(r => r.slot===s && r.direction==='from').length
+    })).map(t => ({...t, total: t.to + t.from}))
+      .filter(t => t.total > 0)
+      .sort((a,b) => b.total - a.total);
+    if(totals.length === 0) return '';
+    const maxTotal = totals[0].total;
+    const rows = totals.map(t => {
+      const barPct = Math.round((t.total / maxTotal) * 100);
+      const isTop = t.total > 0 && t.total === maxTotal;
+      const toNames = dayReqs.filter(r => r.slot===t.slot && r.direction==='to')
+        .map(r => escapeHtml(r.name) + (r.loc==='simcentre' ? ' <span class="loc-tag">(simcentre)</span>' : ''));
+      const fromNames = dayReqs.filter(r => r.slot===t.slot && r.direction==='from')
+        .map(r => escapeHtml(r.name) + (r.loc==='simcentre' ? ' <span class="loc-tag">(simcentre)</span>' : ''));
+      const detail = [
+        toNames.length ? `<div class="dash-detail-line"><span class="dash-detail-tag to">TO</span>${toNames.join(', ')}</div>` : '',
+        fromNames.length ? `<div class="dash-detail-line"><span class="dash-detail-tag from">FROM</span>${fromNames.join(', ')}</div>` : ''
+      ].join('');
+      return `
+        <div class="dash-row ${isTop?'dash-top':''}">
+          <span class="dash-time">${t.slot}</span>
+          <div class="dash-track"><div class="dash-bar" style="width:${barPct}%;">
+            ${t.to ? `<div class="dash-seg to" style="flex:${t.to}">TO ${t.to}</div>` : ''}
+            ${t.from ? `<div class="dash-seg from" style="flex:${t.from}">FROM ${t.from}</div>` : ''}
+          </div></div>
+        </div>
+        <div class="dash-detail" style="display:none;">${detail}</div>`;
+    }).join('');
+    return `
+      <div class="dash-day">
+        <div class="dash-day-head">${name}, ${fmtShort(dateForDay(i))}</div>
+        ${rows}
+      </div>`;
+  }).join('');
+}
+
+function renderHeatmap(){
+  const wrap = el('heatmapWrap');
+  if(state.requests.length === 0){
+    wrap.innerHTML = '<div class="empty">No responses yet for this week.</div>';
+    return;
+  }
+  const head = '<tr><th></th>' + SLOTS.map(s=>`<th>${s}</th>`).join('') + '</tr>';
+  const rows = DAY_NAMES.map((name, i) => {
+    const dayReqs = state.requests.filter(r => r.dayIndex === i);
+    const pCounts = SLOTS.map(s => dayReqs.filter(r=>r.direction==='from' && r.slot===s).length);
+    const dCounts = SLOTS.map(s => dayReqs.filter(r=>r.direction==='to' && r.slot===s).length);
+    const pMax = Math.max(0, ...pCounts);
+    const dMax = Math.max(0, ...dCounts);
+    const cells = SLOTS.map((s, si) => {
+      const p = pCounts[si], d = dCounts[si];
+      const pCls = 'n p' + (p>0?' has':'') + (p>0 && p===pMax ? ' top':'');
+      const dCls = 'n d' + (d>0?' has':'') + (d>0 && d===dMax ? ' top':'');
+      return `<td class="slotcell"><div class="pd-stack"><span class="${dCls}">${d||'·'}</span><span class="${pCls}">${p||'·'}</span></div></td>`;
+    }).join('');
+    return `<tr><td class="daycell"><div class="dn">${DAY_SHORT[i]}</div><div class="dd">${fmtShort(dateForDay(i))}</div></td>${cells}</tr>`;
+  }).join('');
+  wrap.innerHTML = `<table class="heatmap"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderDetails(){
+  const board = el('board');
+  if(state.requests.length === 0){ board.innerHTML = ''; return; }
+  board.innerHTML = DAY_NAMES.map((name, i) => {
+    const dayReqs = state.requests.filter(r => r.dayIndex === i);
+    if(dayReqs.length === 0) return '';
+    const block = (dir, label) => {
+      const items = dayReqs.filter(r => r.direction === dir);
+      if(items.length === 0) return '';
+      const slotLines = SLOTS.map(s => {
+        const names = items.filter(r=>r.slot===s).map(r => escapeHtml(r.name) + (r.loc==='simcentre' ? ' <span class="loc-tag">(simcentre)</span>' : ''));
+        if(names.length === 0) return '';
+        return `<div class="slot-line"><span class="slot-badge">${s}</span><span class="names">${names.join(', ')}</span></div>`;
+      }).join('');
+      return `<div class="dir-detail ${dir}"><div class="dir-detail-title">${label}</div>${slotLines}</div>`;
+    };
+    return `
+      <div class="demand-day">
+        <div class="dd-head"><span>${name}, ${fmtShort(dateForDay(i))}</span><span class="total">${dayReqs.length} ${dayReqs.length===1?'request':'requests'}</span></div>
+        <div class="demand-body">
+          ${block('to','To the airport')}
+          ${block('from','From the airport')}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+el('exportBtn').onclick = () => {
+  const header = ['Week','Day','Date','Direction','Slot','Location','Name'];
+  const lines = state.requests
+    .slice()
+    .sort((a,b) => a.dayIndex - b.dayIndex || a.slot.localeCompare(b.slot))
+    .map(r => [weekLabel(), DAY_NAMES[r.dayIndex], fmtShort(dateForDay(r.dayIndex)), r.direction==='from'?'From the airport':'To the airport', r.slot, r.loc==='simcentre'?'Simcentre':'Airport', r.name]
+      .map(v => '"' + String(v||'').replace(/"/g,'""') + '"').join(','));
+  const csv = [header.join(','), ...lines].join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'shuttle-demand.csv';
+  a.click();
+};
+
+// ---- site-wide gate ----
+function showApp(){
+  el('siteGate').style.display = 'none';
+  el('appMain').style.display = '';
+  init();
+}
+function tryUnlock(){
+  const val = el('sitePass').value.trim();
+  if(val === SITE_PASSCODE){
+    try{ window.localStorage.setItem('site-unlocked-code', SITE_PASSCODE); }catch(e){}
+    showApp();
+  } else {
+    el('siteGateMsg').textContent = 'Incorrect code.';
+  }
+}
+el('siteGateBtn').onclick = tryUnlock;
+el('sitePass').addEventListener('keydown', e => { if(e.key==='Enter') tryUnlock(); });
+
+let alreadyUnlocked = false;
+try{ alreadyUnlocked = window.localStorage.getItem('site-unlocked-code') === SITE_PASSCODE; }catch(e){}
+if(alreadyUnlocked){
+  showApp();
+} else {
+  el('siteGate').style.display = '';
+}
+
+// ---- init ----
+async function init(){
+  // Render immediately with a local default so the form isn't blank while
+  // waiting on the network — then refresh once the real data arrives.
+  state = { weekStart: nextMonday(), requests: [] };
+  buildDayRows();
+  el('weekLabelStudent').textContent = weekLabel() + ' (loading…)';
+
+  await loadState();
+  buildDayRows();
+  el('weekLabelStudent').textContent = weekLabel();
+}
+
+</script>
+</body>
+</html>
